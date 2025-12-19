@@ -124,8 +124,8 @@ class AgentOrchestrator:
                         validation_errors
                     )
 
-            # Step 4: Check cache
-            cache_key = self.cache_manager.generate_key(store_id, shopifyql_query)
+            # Step 4: Check cache (include question in key to differentiate similar queries)
+            cache_key = self.cache_manager.generate_key(store_id, f"{shopifyql_query}|{question}")
             cached_result = await self.cache_manager.get(cache_key)
 
             if cached_result:
@@ -138,7 +138,8 @@ class AgentOrchestrator:
                 query_data = await shopify_client.execute_query_with_fallback(
                     shopifyql_query=shopifyql_query,
                     intent=intent_result["intent"],
-                    entities=intent_result.get("entities", {})
+                    entities=intent_result.get("entities", {}),
+                    question=question
                 )
 
                 # Log which method was used

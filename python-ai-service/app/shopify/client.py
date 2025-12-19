@@ -49,7 +49,8 @@ class ShopifyClient:
         self,
         shopifyql_query: str,
         intent: str,
-        entities: Dict[str, Any] = None
+        entities: Dict[str, Any] = None,
+        question: str = ""
     ) -> Dict[str, Any]:
         """
         Execute a query with ShopifyQL as primary and GraphQL as fallback.
@@ -58,6 +59,7 @@ class ShopifyClient:
             shopifyql_query: The ShopifyQL query to try first
             intent: The classified intent (sales, inventory, customers, orders)
             entities: Extracted entities for fallback query generation
+            question: Original user question for smart sorting in fallback
 
         Returns:
             Dictionary with query results, source indicator, and any errors
@@ -91,7 +93,7 @@ class ShopifyClient:
             )
 
             # Step 3: Fall back to GraphQL
-            graphql_result = await self.execute_graphql_fallback(intent, entities)
+            graphql_result = await self.execute_graphql_fallback(intent, entities, question)
 
             return {
                 **graphql_result,
@@ -112,7 +114,8 @@ class ShopifyClient:
     async def execute_graphql_fallback(
         self,
         intent: str,
-        entities: Dict[str, Any]
+        entities: Dict[str, Any],
+        question: str = ""
     ) -> Dict[str, Any]:
         """
         Execute a GraphQL query as fallback when ShopifyQL is unavailable.
@@ -120,6 +123,7 @@ class ShopifyClient:
         Args:
             intent: The classified intent
             entities: Extracted entities from the question
+            question: The original user question for smart sorting
 
         Returns:
             Dictionary with query results
@@ -127,7 +131,7 @@ class ShopifyClient:
         logger.info("executing_graphql_fallback", intent=intent)
 
         if intent == "inventory":
-            return await self._graphql_inventory_query(entities)
+            return await self._graphql_inventory_query(entities, question)
         elif intent == "sales" or intent == "orders":
             return await self._graphql_orders_query(entities)
         elif intent == "customers":
@@ -203,9 +207,10 @@ class ShopifyClient:
             logger.error("graphql_products_error", error=str(e))
             return {"error": str(e), "data": []}
 
-    async def _graphql_inventory_query(self, entities: Dict[str, Any]) -> Dict[str, Any]:
+    async def _graphql_inventory_query(self, entities: Dict[str, Any], question: str = "") -> Dict[str, Any]:
         """Fetch inventory levels via GraphQL"""
         limit = entities.get("limit", 20) or 20
+        question_lower = question.lower() if question else ""
         product_name = entities.get("product_name")
 
         # Build query filter if product name specified
@@ -265,8 +270,22 @@ class ShopifyClient:
                             "sku": variant.get("sku")
                         })
 
-                # Sort by quantity (low stock first)
-                inventory_data.sort(key=lambda x: x.get("quantity_available", 0))
+                # Smart sorting based on question
+                if any(word in question_lower for word in ["expensive", "highest price", "costly"]):
+                    # Sort by price descending (most expensive first)
+                    inventory_data.sort(key=lambda x: float(x.get("price", 0) or 0), reverse=True)
+                elif any(word in question_lower for word in ["cheapest", "lowest price", "affordable"]):
+                    # Sort by price ascending (cheapest first)
+                    inventory_data.sort(key=lambda x: float(x.get("price", 0) or 0))
+                elif any(word in question_lower for word in ["zero stock", "out of stock", "no stock"]):
+                    # Filter and sort by zero stock
+                    inventory_data = [item for item in inventory_data if item.get("quantity_available", 0) == 0]
+                elif any(word in question_lower for word in ["most stock", "highest stock", "high inventory"]):
+                    # Sort by quantity descending
+                    inventory_data.sort(key=lambda x: x.get("quantity_available", 0), reverse=True)
+                else:
+                    # Default: Sort by quantity ascending (low stock first)
+                    inventory_data.sort(key=lambda x: x.get("quantity_available", 0))
 
                 return {"data": inventory_data}
 

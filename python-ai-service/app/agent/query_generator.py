@@ -59,7 +59,7 @@ AGGREGATE FUNCTIONS:
 - max(field)
 """
 
-QUERY_GENERATION_PROMPT = """You are a ShopifyQL expert. Generate a ShopifyQL query for the given question.
+QUERY_GENERATION_PROMPT = """You are a ShopifyQL expert. Generate a ShopifyQL query that SPECIFICALLY answers the user's question.
 
 {schema}
 
@@ -69,12 +69,35 @@ Extracted Entities: {entities}
 
 {conversation_context}
 
+IMPORTANT: Generate a query that DIRECTLY answers what the user is asking. Pay attention to keywords:
+
+PRICE-RELATED QUERIES:
+- "most expensive" / "highest price" → ORDER BY price DESC LIMIT 1
+- "cheapest" / "lowest price" → ORDER BY price ASC LIMIT 1
+- "price range" / "all prices" → SHOW product_title, price
+
+STOCK-RELATED QUERIES:
+- "zero stock" / "out of stock" → Use WHERE quantity_available = 0 or filter results
+- "low stock" → ORDER BY quantity_available ASC (lowest first)
+- "high stock" / "most stock" → ORDER BY quantity_available DESC
+
+QUANTITY QUERIES:
+- "top 5" / "top 10" → Use LIMIT 5 or LIMIT 10
+- "all products" → No LIMIT or high LIMIT
+
+SORTING:
+- Always use ORDER BY that matches what the user is asking about
+- For "most expensive": ORDER BY price DESC
+- For "low stock": ORDER BY quantity_available ASC
+- For "best selling": ORDER BY total_sales DESC
+
 Generate a ShopifyQL query that answers the question. Follow these rules:
 1. Use the correct table based on intent (sales for revenue/orders, inventory for stock)
-2. Include appropriate time ranges using SINCE/UNTIL
+2. Include appropriate time ranges using SINCE/UNTIL for sales queries
 3. Use GROUP BY for aggregations
-4. Use ORDER BY and LIMIT for "top N" queries
-5. Ensure all field names are valid
+4. Use ORDER BY that matches what user is asking (price, stock, sales)
+5. Use LIMIT appropriately based on the question
+6. Ensure all field names are valid
 
 Respond in JSON format:
 {{
